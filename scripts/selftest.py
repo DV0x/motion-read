@@ -133,6 +133,11 @@ def main():
     cut_frames = camera_clip(A, [step(dx=-pct(10))] * 24) + camera_clip(B, [step(dx=pct(10))] * 24)
     hold_frames = camera_clip(A, [step(dx=-pct(10))] * 16) + [render(A, step(dx=-pct(10) * 16))] * 16 + \
         camera_clip(B, [step(dx=-pct(10))] * 16)
+    # the shot label each clip should get: its main move with direction, else handheld or locked
+    labels = {"locked": "frozen", "pan-right-20": "pan right", "tilt-down-12": "tilt down", "zoom-in-30": "push in",
+              "zoom-out-25": "pull out", "roll-10": "roll clockwise", "pan-and-zoom": "push in",
+              "shake": "handheld" if true_shake(jit) >= motion.SHAKY else "locked",
+              "object-crossing": "locked", "object-approaching": "locked"}
     fails, lines = 0, []
 
     def check(name, what, got, want, tol):
@@ -156,6 +161,12 @@ def main():
         sh = float(np.nanmean(col("shake"))) if np.isfinite(col("shake")).any() else None
         check(name, "shake", sh, want["shake"], max(0.5, 0.15 * want["shake"]))
         check(name, "sure %", 100 * float(np.mean(col("cam_conf"))), 100, 10)
+        sh = motion.shots(res)
+        label = sh[0]["camera"] if sh else "frozen"   # a still picture is one frozen tail, no shot
+        exp = labels[name]
+        ok = label == exp
+        fails += not ok
+        lines.append(f"{'ok  ' if ok else 'FAIL'} {name:20s} label  read {label!r}  put in {exp!r}")
 
     p = os.path.join(out, "cut.mp4")
     clip(p, cut_frames)
@@ -176,6 +187,20 @@ def main():
     s = motion.summarise(motion.analyse(p, 480, 448))
     check("early-cut", "count", len(s["cuts_at_s"]), 1, 0)
     check("early-cut", "time", s["cuts_at_s"][0] if s["cuts_at_s"] else None, 6 / FPS, 0.03)
+    # a fast pan reads as a whip, with its direction
+    p = os.path.join(out, "whip.mp4")
+    clip(p, camera_clip(A, [step(dx=-pct(90))] * N))
+    label = motion.shots(motion.analyse(p, 480, 448))[0]["camera"]
+    ok = label == "whip right"
+    fails += not ok
+    lines.append(f"{'ok  ' if ok else 'FAIL'} {'whip-right-90':20s} label  read {label!r}  put in 'whip right'")
+    # a fast zoom reads as a crash zoom
+    p = os.path.join(out, "crash-zoom.mp4")
+    clip(p, camera_clip(A, [step(scale=sc(150))] * 24))
+    label = motion.shots(motion.analyse(p, 480, 448))[0]["camera"]
+    ok = label == "crash zoom in"
+    fails += not ok
+    lines.append(f"{'ok  ' if ok else 'FAIL'} {'crash-zoom-in-150':20s} label  read {label!r}  put in 'crash zoom in'")
     p = os.path.join(out, "hold.mp4")
     clip(p, hold_frames)
     s = motion.summarise(motion.analyse(p, 480, 448))

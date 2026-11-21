@@ -47,7 +47,8 @@ PATCH_MIN_PTS = 4    # textured background points a patch needs to vote
 CAM_TOL = 0.15       # patches agree when within this share of the typical patch motion (never under 1 px)
 CAM_MIN_PTS = 8      # camera confidence: voting patches needed
 CAM_MIN_SPREAD = 0.15  # ... the box they span, as a share of the frame area
-CAM_MIN_INLIERS = 0.5  # ... the share of them that agree on one camera move
+CAM_MIN_INLIERS = 0.35  # ... the share of them that agree on one camera move. Half was too strict: in handheld
+                       # footage with faces and cars in frame most frames agreed at 38 to 47% and came out unsure
 STILL_BLIP = 0.2     # one frame under this (px) between still frames stays part of the hold (a keyframe's pop)
 STILL_PX = 0.04      # mean flow (analysis px per frame) under which a frame counts as frozen
 
@@ -426,6 +427,59 @@ def smooth(x, k=5):
 
 WHIP = 60.0     # camera speed, % of frame width per second, held 2+ frames
 ZOOM = 40.0     # push or pull, % scale per second
+MOVE_MIN = 8.0  # a shot's main move counts when its median pan, tilt or push reaches this, % a second
+ROLL_MIN = 5.0  # ... or its median roll reaches this, degrees a second
+SHAKY = 4.0     # mean shake at or over this and the shot is handheld
+CRASH = 100.0   # push or pull at least this fast, % scale a second, names a crash zoom
+EVENT_S = 0.1   # a whip must hold this long (3 frames at 24 fps) to name the shot. Handheld jerks reach the
+                # whip speed for a frame or two
+CRASH_AGREE = 0.5  # ... and only on frames where at least half the patches agree, since a blur or a big moving
+                   # thing in frame can fake a fast push on frames that barely agree
+CRASH_FRAMES = 2  # a crash zoom needs only 2 frames in a row: nothing else reaches that speed, and a zoom that
+                  # fast blurs the frame, so the readings around it often drop out as unsure
+
+
+def _runs(mask, n):
+    """frames that sit in a run of n or more True in a row"""
+    out, j = np.zeros(len(mask), bool), 0
+    while j < len(mask):
+        if mask[j]:
+            k = j
+            while k + 1 < len(mask) and mask[k + 1]:
+                k += 1
+            if k - j + 1 >= n:
+                out[j:k + 1] = True
+            j = k + 1
+        else:
+            j += 1
+    return out
+
+
+def main_move(pan, tilt, push, roll, fps, agree=None):
+    """the shot's main move, with its direction, from its sure frames.
+    A whip (pan or tilt at WHIP held EVENT_S) or a crash zoom (push at CRASH for CRASH_FRAMES) names the shot,
+    since it is what the shot is for even when it is short. Otherwise the median of the shot, so a short
+    glitch or something big moving through the frame late in the shot does not decide it.
+    None when nothing reaches its threshold."""
+    n = max(2, math.ceil(EVENT_S * fps - 1e-9))
+    sp, up = np.nan_to_num(np.hypot(pan, tilt)), np.nan_to_num(np.abs(push))
+    strong = np.ones(len(up), bool) if agree is None else np.nan_to_num(agree) >= CRASH_AGREE
+    wf, zf = _runs(sp >= WHIP, n), _runs((up >= CRASH) & strong, CRASH_FRAMES)
+    # a whip wins over a crash zoom in the same shot: swinging from something near to something far
+    # shrinks the flat picture the way a pull out does
+    if wf.any():
+        mp, mt = np.nanmean(pan[wf]), np.nanmean(tilt[wf])
+        return "whip " + (("right" if mp > 0 else "left") if abs(mp) >= abs(mt) else ("down" if mt > 0 else "up"))
+    if zf.any():
+        return "crash zoom in" if np.nanmean(push[zf]) > 0 else "crash zoom out"
+    med = lambda x: float(np.nanmedian(x)) if np.isfinite(x).any() else 0.0
+    mp, mt, mu, mr = med(pan), med(tilt), med(push), med(roll)
+    cands = [(abs(mp), MOVE_MIN, "pan right" if mp > 0 else "pan left"),
+             (abs(mt), MOVE_MIN, "tilt down" if mt > 0 else "tilt up"),
+             (abs(mu), MOVE_MIN, "push in" if mu > 0 else "pull out"),
+             (abs(mr), ROLL_MIN, "roll clockwise" if mr > 0 else "roll counter-clockwise")]
+    cands = [(v, name) for v, lim, name in cands if v >= lim]
+    return max(cands)[1] if cands else None
 
 
 def shots(res):
@@ -447,19 +501,18 @@ def shots(res):
         sp, sh, pu = np.hypot(g("pan"), g("tilt")), g("shake"), g("push")
         msp, msh, mpu = (np.nanmean(x) if np.isfinite(x).any() else 0 for x in (sp, sh, np.abs(pu)))
         conf = float(np.mean(g("cam_conf")))
+        # two facts per shot: how the camera is held, and its main move with direction
         if conf < 0.5:
-            kind = "unsure"
-        elif msh >= 4:
-            kind = "handheld"
-        elif np.isfinite(sp).any() and np.nanmax(sp) >= WHIP:
-            kind = "whip"
-        elif mpu >= 8 and mpu >= msp:
-            kind = "push/pull"
-        elif msp >= 3:
-            kind = "moving"
+            hold, move, kind = "unsure", "unsure", "unsure"
         else:
-            kind = "locked"
+            hold = "handheld" if msh >= SHAKY else "steady"
+            move = main_move(g("pan"), g("tilt"), g("push"), g("roll"), fps, g("cam_inliers")) or "none"
+            if move == "none":
+                kind = "handheld" if hold == "handheld" else "locked"
+            else:
+                kind = move + (", handheld" if hold == "handheld" else "")
         out.append({"start": round(a, 2), "end": round(b, 2), "dur": round(b - a + 1 / fps, 2), "camera": kind,
+                    "move": move, "hold": hold,
                     "cam_conf_pct": round(100 * conf),
                     "speed": m(sp), "shake": m(sh), "push": m(pu), "body": m(g("subj_internal"))})
     return out

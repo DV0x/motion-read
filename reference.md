@@ -7,7 +7,7 @@ Every frame is scaled to 480 px wide (`--width`). DIS optical flow runs between 
 | Measure | How |
 |---|---|
 | pan, tilt, push, roll | The frame is cut into a grid of patches, 16 across. Each patch with textured background in it casts one vote, the median flow of its textured points. A similarity transform (shift, scale, rotation) is fitted to the votes with RANSAC. One vote per patch means a detailed object such as a car cannot outvote the background, whatever the object is. Textured means both gradient directions are present in a 9x9 window (smaller structure-tensor eigenvalue above 8, flat sky reads about 0). Plain sky shows zero flow whatever the camera does, so it gets no vote. Patches count as agreeing within 15% of the typical patch motion, never under 1 px, since blur and depth spread the flow in a fast move. The shift is read at the frame centre. Camera motion is the opposite of how the background moves on screen. Pan and tilt in % of frame width a second, push in % scale a second, roll in degrees a second |
-| camera confidence | A frame's camera reading counts only with 8 or more voting patches, spanning 15% or more of the frame area, with half or more of them agreeing on one move. Otherwise the camera numbers for that frame are left blank. The share of patches that disagree (1 minus `cam_inliers` in the CSV) is how much of the frame moves on its own |
+| camera confidence | A frame's camera reading counts only with 8 or more voting patches, spanning 15% or more of the frame area, with 35% or more of them agreeing on one move (it was half until 2026-11-21, when handheld footage with faces and cars in frame agreed at 38 to 47% on most frames and came out unsure). Otherwise the camera numbers for that frame are left blank. The share of patches that disagree (1 minus `cam_inliers` in the CSV) is how much of the frame moves on its own |
 | shake | Camera velocity minus its own 0.5 s running average, RMS over 0.5 s, worked out shot by shot so the average never runs across a cut. Roll jitter is the same on roll |
 | body internal | On a crop around the person at full resolution (448 px tall, `--crop-h`), the flow left after one affine fit to the whole figure, mean, in % of the person's height a second |
 | body spread | The same crop split into head (top 30%), middle and bottom (last 30%) bands, median flow of each, mean distance between bands, same unit |
@@ -30,21 +30,23 @@ Frames at a cut and next to it are left out of the camera and body numbers, sinc
 
 ## Shot types in the shot table
 
-Shots run between cuts. Each gets one label, checked in this order after the unsure rule below.
+Shots run between cuts. Each shot's label is its main move with direction, and ", handheld" after it when the mean shake is 4 or more. The JSON summary also keeps the two apart as `move` and `hold`.
 
-| Label | Rule |
+| Main move | Rule |
 |---|---|
-| handheld | mean shake 4 or more |
-| whip | peak camera speed at the whip threshold |
-| push/pull | mean absolute push 8 or more and at least the pan and tilt speed |
-| moving | mean camera speed 3 or more |
-| locked | anything slower |
+| whip left, right, up or down | camera speed of 60 or more held 0.1 s or longer (3 frames at 24 fps), direction from those frames |
+| crash zoom in or out | push of 100 or more for two frames in a row, on frames where at least half the patches agree, and no whip in the shot (swinging from something near to something far shrinks the flat picture the way a pull out does). Nothing else reaches that speed, and a zoom that fast blurs the frame so the readings around it often drop out. |
+| pan left or right, tilt up or down, push in, pull out | otherwise the largest of the shot's median pan, tilt and push, when it reaches 8 |
+| roll clockwise or counter-clockwise | median roll of 5 degrees a second or more, when it is the largest |
+| handheld or locked | none of these, named by the shake alone |
 
-A shot where fewer than half the frames have a confident camera reading is labelled unsure before any of these, with its sure % in the shot table. On the Sabotage clip ten of 24 shots came out unsure. The ones checked on frames were a face against a flat wall, a car skidding across most of the frame, a view over a car's bonnet with the street going by, two people filling the frame, and a car driving up on plain tarmac.
+Whips and crash zooms come first because they are what a shot is for even when they last a fraction of it. The rest use the median, so a two-frame glitch or a large object moving through the frame late in the shot does not decide the label. The whip and crash zoom thresholds were set on the Sabotage clip and its labels checked on the frames, shot by shot. A two-frame whip rule called a fast tilt a whip there, and a three-frame crash zoom rule missed the crash zoom at 6.4 s, where the blur left only two sure readings. Before 2026-11-21 the label was one word with handheld checked first, so almost every shot of handheld footage read "handheld" whatever the camera did. A pan is any sideways move and a push is any move in, since the flat picture cannot tell a pan from a truck or a zoom from a dolly.
+
+A shot where fewer than half the frames have a confident camera reading is labelled unsure before any of these, with its sure % in the shot table. On the Sabotage clip 3 of 24 shots come out unsure (10 at the old half gate). The ones checked on frames were a face against a flat wall, a car skidding across most of the frame, a view over a car's bonnet with the street going by, two people filling the frame, and a car driving up on plain tarmac.
 
 ## Known-motion test
 
-`scripts/selftest.py` draws a textured picture, moves it by an exact amount each frame and checks the tool reads the same amount back. Pan 20 read 19.97, tilt 12 read 12.05, zoom 30 read 29.84, roll 10 read 9.92, a pan with a zoom read both right, random shake read within 15% of what was put in, one cut found at the right frame, a hold found at the right start and length. A brightness pop on the first frame reads no cut, and a real cut a quarter second in is still found. Two clips have a detailed object on a plainer still background, one crossing the frame and one growing as if driving at the camera. Both read a still camera. All 65 checks pass. Run it after any change.
+`scripts/selftest.py` draws a textured picture, moves it by an exact amount each frame and checks the tool reads the same amount back. Pan 20 read 19.97, tilt 12 read 12.05, zoom 30 read 29.84, roll 10 read 9.92, a pan with a zoom read both right, random shake read within 15% of what was put in, one cut found at the right frame, a hold found at the right start and length. A brightness pop on the first frame reads no cut, and a real cut a quarter second in is still found. Two clips have a detailed object on a plainer still background, one crossing the frame and one growing as if driving at the camera. Both read a still camera. Shot labels are checked too (pan right, tilt down, push in, pull out, roll clockwise, a whip right at 90, a crash zoom in at 150, handheld for the shake clip, locked for both object clips). All 77 checks pass. Run it after any change.
 
 ## Validation, 2026-11-20, numbers from the 2026-11-21 review
 
@@ -53,7 +55,7 @@ Run on an M-series Mac with the Vision mask unless noted. The human check was th
 | Clip | What it is | What the tool read | Human check |
 |---|---|---|---|
 | OK Go, "Here It Goes Again", 0:45 to 1:15 | one take, locked camera, four people dancing | camera 0.16, shake 0.12, camera sure 100%, no cuts, body internal 23, a 0.67 s hold at 22.4 s not yet checked by eye | locked and uncut, as known |
-| Beastie Boys, "Sabotage", 0:30 to 1:00 | handheld 70s cop show, crash zooms, whips, fast cuts | camera 30, shake 17, camera sure 53%, 23 cuts (ffmpeg scene detection found 17, the extra 6 real on the frames), title crash zoom and 1.25 s hold at 9.2 s, the crash zoom on the man on the roof from 8.2 s (shot push 130), whips at 14.2 to 16.6 s, a blur burst at 18.7 s, ten unsure shots | cuts, title zoom and hold, roof zoom, whips at 14 to 15.5 s and the blur burst confirmed by eye on the first run. The unsure shots checked on frames only |
+| Beastie Boys, "Sabotage", 0:30 to 1:00 | handheld 70s cop show, crash zooms, whips, fast cuts | camera 30, shake 17, camera sure 76% (53% at the old half gate), 23 cuts (ffmpeg scene detection found 17, the extra 6 real on the frames), title crash zoom and 1.25 s hold at 9.2 s, the crash zoom on the man on the roof from 8.2 s (shot push 130), whips at 14.2 to 16.6 s, a blur burst at 18.7 s, ten unsure shots | cuts, title zoom and hold, roof zoom, whips at 14 to 15.5 s and the blur burst confirmed by eye on the first run. The unsure shots checked on frames only |
 | MiniMax H3 FL2VA render, 5.17 s, camera arc around a standing woman | AI image-to-video between two stills | camera 10.5, shake 1.4, camera sure 99%, still for 0.5 s at the start, frozen for 0.75 s at the end | |
 
 A review on 2026-11-21 found the tool read the camera's shift at the frame's corner, so every zoom leaked into pan and tilt (half the push into pan). On Sabotage that had inflated shake from 22 to 32 and turned four zooms into whips. The same review replaced one vote per textured point with one vote per patch, after a car driving at the camera read as a push of 28. It now reads 3.7, and the shot is marked unsure. Sabotage went from 87% sure to 53%, because shots where a car fills the frame used to get a confident reading they had not earned. Earlier numbers for these clips (shake 32, 0.19 and 2.0) are from before the fix.

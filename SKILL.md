@@ -40,7 +40,7 @@ Start with `summary.md` in the output folder. It has one row per clip and a shot
 | holds, frozen tail | start and length in seconds | something always moves |
 | light swing | background brightness change within 0.5 s | the light and the room stay put |
 
-Anchors from the validation runs. A locked one-take camera read shake 0.12. Handheld 70s cop-show footage read 17. A smooth AI camera arc read 1.4. Shots labelled unsure, and grey stretches on the camera chart, are where the patches of the frame do not agree on one camera move, so say so instead of reporting their camera numbers. Fast footage full of cars and close faces can be half unsure, and that is the honest reading. Full definitions, thresholds and shot types are in `reference.md`.
+Anchors from the validation runs. A locked one-take camera read shake 0.12. Handheld 70s cop-show footage read 17. A smooth AI camera arc read 1.4. Shots labelled unsure, and grey stretches on the camera chart, are where the patches of the frame do not agree on one camera move, so say so instead of reporting their camera numbers. Fast footage full of cars and close faces can still leave some shots unsure (3 of 24 on Sabotage), and that is the honest reading. Full definitions, thresholds and shot types are in `reference.md`.
 
 ## 3. Check the flags before reporting them
 
@@ -61,11 +61,12 @@ It prints a sheet, one row per time, two frames before and the frame at it. Read
 
 ## After changing the tool
 
-Run `scripts/selftest.py` with the skill's Python (the venv path `setup.sh` prints). It draws clips with a known pan, tilt, zoom, roll, shake, cut, hold and an object moving on its own, and checks the tool reads back what was put in. It takes under a minute.
+Run `scripts/selftest.py` with the skill's Python (the venv path `setup.sh` prints). It draws clips with a known pan, tilt, zoom, roll, shake, whip, crash zoom, cut, hold and an object moving on its own, and checks the tool reads back what was put in, shot labels included. It takes under a minute.
 
 ## Limits
 
-- A whip and handheld jitter both read as shake. A smooth film with whip transitions can get its whip shots called handheld.
+- A whip and handheld jitter both read as shake, so a whip shot also reads handheld in its label.
+- Shot labels name the main move with direction (whip right, crash zoom in, pan left, tilt up), with ", handheld" when the shot shakes. Near the thresholds a label can go either way (a fast tilt can read as a whip), so check a label that matters on the frames.
 - Body numbers break up in heavy motion blur. With several people in frame the body numbers describe the group, not one person.
 - The camera is whatever most of the frame agrees on. Anything moving on its own that fills about half the frame or more (a car skidding past, a face against a flat wall, a view over a car's bonnet) leaves no majority, and those shots come out unsure.
 - The tool reads the flat picture. It cannot tell a zoom from the camera moving forward, or a pan from the camera sliding sideways.

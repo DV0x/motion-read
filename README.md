@@ -9,6 +9,7 @@ Claude reads still frames, never video. Frames show what is in a shot. They do n
 | Measure | What you get |
 |---|---|
 | Camera | pan, tilt, push and roll per frame, and how sure the reading is |
+| Shot label | each shot's main move with direction, like whip right, crash zoom in, pan left or tilt up, and whether it is handheld |
 | Shake | handheld jitter, per shot |
 | Cuts | a cut list, plus whips smeared into blur |
 | Holds | freeze frames and frozen ends, common in AI video |
@@ -37,9 +38,9 @@ Dense optical flow on every pair of frames, at the clip's own frame rate. The fr
 
 ## How I checked it
 
-- **Known motion.** `scripts/selftest.py` draws clips with an exact pan, tilt, zoom, roll, shake, cut and hold, and checks the tool reads back what was put in. 65 of 65 checks pass.
+- **Known motion.** `scripts/selftest.py` draws clips with an exact pan, tilt, zoom, roll, shake, whip, crash zoom, cut and hold, and checks the tool reads back what was put in. 77 of 77 checks pass, shot labels included.
 - **By eye.** On 30 seconds of the Beastie Boys' Sabotage it found 23 cuts where ffmpeg scene detection found 17. The 6 extra were checked frame by frame and are real. A locked one-take video (OK Go, Here It Goes Again) read shake 0.12, the Sabotage handheld footage read 17.
-- **CameraBench.** On 200 clips from the public test set, mean average precision 0.46 against 0.14 for guessing. In, out and right score about 0.7. Up and down score about 0.3. 49 of the 200 clips came out unsure. The clips were the GIF previews, which drop frames, so the shake score there is not a fair test.
+- **CameraBench.** On 200 clips from the public test set, mean average precision 0.46 against 0.14 for guessing. In, out and right score about 0.7. Up and down score about 0.3. 49 of the 200 clips came out unsure, measured before the agreement gate was loosened on 2026-11-21 (Sabotage went from 10 unsure shots of 24 to 3). The clips were the GIF previews, which drop frames, so the shake score there is not a fair test.
 
 ## What it gets wrong
 
